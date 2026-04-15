@@ -1,0 +1,16 @@
+# Save the trained model
+save_dir = 'trained_model'
+os.makedirs(save_dir, exist_ok=True)
+model_path = os.path.join(save_dir, 'hybrid_qnn_model.pth')
+torch.save(model.state_dict(), model_path)
+print(f"Model saved to {model_path}")
+
+
+
+
+Set-ExecutionPolicy -ExecutionPolicy Unrestricted -Scope Process
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+
+
+

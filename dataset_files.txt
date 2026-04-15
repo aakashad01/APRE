@@ -1,0 +1,5 @@
+Dataset Path: C:\Users\aakas\.cache\kagglehub\datasets\limamateus\cic-iomt-2024-wifi-mqtt\versions\1
+C:\Users\aakas\.cache\kagglehub\datasets\limamateus\cic-iomt-2024-wifi-mqtt\versions\1\CIC_IoMT_2024_WiFi_MQTT_test.csv
+C:\Users\aakas\.cache\kagglehub\datasets\limamateus\cic-iomt-2024-wifi-mqtt\versions\1\CIC_IoMT_2024_WiFi_MQTT_test.parquet
+C:\Users\aakas\.cache\kagglehub\datasets\limamateus\cic-iomt-2024-wifi-mqtt\versions\1\CIC_IoMT_2024_WiFi_MQTT_train.csv
+C:\Users\aakas\.cache\kagglehub\datasets\limamateus\cic-iomt-2024-wifi-mqtt\versions\1\CIC_IoMT_2024_WiFi_MQTT_train.parquet
