@@ -1,89 +1,102 @@
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
-import httpx
-import random
-from typing import Optional
-from .logger import QAPRELogger
-from .deception import DeceptionEngine
-import time
+from flask import Flask, request
+import time, os, yaml, json
+from deception import deception_router
 
-app = FastAPI(title="Q-APRE Vulnerable Honeypot")
+app = Flask(__name__)
 
-# Initialize Deception Engine
-deception_engine = DeceptionEngine()
+# Load config
+with open("config.yaml") as f:
+    CONFIG = yaml.safe_load(f)
 
-# Add our custom logger middleware
-app.add_middleware(QAPRELogger)
+REQUEST_LOG = CONFIG["logging"]["request_log"]
+DECEPTION_LOG = CONFIG["logging"]["deception_log"]
 
-@app.middleware("http")
-async def deception_middleware(request: Request, call_next):
-    # 1. IDENTIFY: In prod, this calls the QNN. Here we use the tag for demo.
-    persona = request.headers.get("X-Persona-Tag", "benign")
-    
-    # 2. DECIDE: Get strategy
-    strategy = deception_engine.get_response_strategy(persona)
-    
-    # 3. ACT: Apply Delay (Tarpit)
-    if strategy["delay"] > 0:
-        time.sleep(strategy["delay"])
-        
-    response = await call_next(request)
-    
-    # 4. ACT: Inject Content (e.g. Fake Admin comments)
-    # (Simplified for demo)
-    return response
+os.makedirs("logs", exist_ok=True)
+os.makedirs("sessions", exist_ok=True)
 
-# --- FAKE DATABASE ---
-USERS = {
-    "1001": {"name": "Alice Admin", "role": "admin", "secret": "s3cr3t_k3y_x99"},
-    "1002": {"name": "Bob User", "role": "user", "secret": "bob_notes.txt"},
-    "1003": {"name": "Charlie Guest", "role": "guest", "secret": "guest_wifi_pass"},
-}
+# In-memory session → persona map (simple for now)
+SESSION_PERSONA = {}
 
-@app.get("/")
-def home():
-    return {"message": "Welcome to the internal employee portal. Please login."}
+def get_session_id():
+    return f"{request.remote_addr}_{request.headers.get('User-Agent')}"
 
-# --- VULNERABILITY 1: IDOR (Insecure Direct Object Reference) ---
-# Goal: Attacker detects they can change 'user_id' to see others' data.
-@app.get("/user/{user_id}")
-def get_user_profile(user_id: str):
-    # VULNERABILITY: No check if the requester is actually user_id.
-    user = USERS.get(user_id)
-    if user:
-        return {"status": "success", "data": user}
-    else:
-        # Returning 404 is correct, but the *pattern* of scanning is what we catch.
-        raise HTTPException(status_code=404, detail="User not found")
+def detect_persona(user_agent):
+    ua = user_agent.lower()
+    if "sqlmap" in ua or "nikto" in ua or "nmap" in ua:
+        return "automated_scanner"
+    elif "curl" in ua:
+        return "script_kiddie"
+    return "unknown"
 
-# --- VULNERABILITY 2: SSRF (Server-Side Request Forgery) ---
-# Goal: Attacker makes the server fetch internal URLs (e.g., localhost:8000/admin, metadata)
-@app.get("/fetch")
-async def fetch_url(url: str):
-    # VULNERABILITY: No allowlist/denylist.
-    try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=2.0)
-            return {"status": "success", "fetched_content": resp.text[:200]} # Return preview
-    except Exception as e:
-        return {"status": "error", "detail": str(e)}
+def get_persona(session_id):
+    if session_id not in SESSION_PERSONA:
+        ua = request.headers.get("User-Agent", "")
+        SESSION_PERSONA[session_id] = detect_persona(ua)
+    return SESSION_PERSONA[session_id]
 
-# --- BAIT: FAKE ADMIN ---
-@app.get("/admin")
-def admin_panel():
-    # Only accessible via localhost (or SSRF)
-    return {"message": "ADMIN PANEL - RESTRICTED", "flag": "QAPRE{SSRF_SUCCESSFUL}"}
+def log_request(session_id):
+    with open(REQUEST_LOG, "a") as f:
+        f.write(
+            f"{time.time()} | {session_id} | "
+            f"{request.method} | {request.full_path}\n"
+        )
 
-# --- LOGIN (Brute Force Target) ---
-@app.post("/login")
-def login(data: dict):
-    username = data.get("username")
-    password = data.get("password")
-    
-    # Simulate login check
-    if username == "admin" and password == "admin123":
-        return {"status": "success", "token": "admin_token_jwt"}
-    
-    # VULNERABILITY: Enum (Wait time or specific error message)
-    # Here we just return failure.
-    return JSONResponse(status_code=401, content={"status": "failed", "error": "Invalid credentials"})
+def log_deception(session_id, persona, action):
+    with open(DECEPTION_LOG, "a") as f:
+        f.write(
+            f"{time.time()} | {session_id} | {persona} | {action}\n"
+        )
+
+@app.before_request
+def before_request():
+    session_id = get_session_id()
+    log_request(session_id)
+
+@app.route("/")
+def index():
+    return "Welcome to Company Portal"
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    session_id = get_session_id()
+    persona = get_persona(session_id)
+    resp, code = deception_router(persona, request)
+    log_deception(session_id, persona, "login")
+    return resp, code
+
+@app.route("/search")
+def search():
+    session_id = get_session_id()
+    persona = get_persona(session_id)
+    resp, code = deception_router(persona, request)
+    log_deception(session_id, persona, "search")
+    return resp, code
+
+@app.route("/download")
+def download():
+    session_id = get_session_id()
+    persona = get_persona(session_id)
+    resp, code = deception_router(persona, request)
+    log_deception(session_id, persona, "download")
+    return resp, code
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    session_id = get_session_id()
+    persona = get_persona(session_id)
+    resp, code = deception_router(persona, request)
+    log_deception(session_id, persona, "upload")
+    return resp, code
+
+# 🔹 Endpoint for QNN / pipeline to update persona
+@app.route("/update_persona", methods=["POST"])
+def update_persona():
+    data = request.json
+    SESSION_PERSONA[data["session_id"]] = data["persona"]
+    return {"status": "updated"}, 200
+
+if __name__ == "__main__":
+    app.run(
+        host=CONFIG["honeypot"]["host"],
+        port=CONFIG["honeypot"]["port"]
+    )

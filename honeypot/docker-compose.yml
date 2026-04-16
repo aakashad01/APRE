@@ -1,0 +1,17 @@
+
+services:
+  honeypot:
+    build: .
+    container_name: qapre_honeypot
+    restart: unless-stopped
+    ports:
+      - "8080:5000"
+    volumes:
+      - ./logs:/app/logs
+      - ./sessions:/app/sessions
+    networks:
+      - honeypot_net
+
+networks:
+  honeypot_net:
+    driver: bridge
